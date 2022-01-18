@@ -92,7 +92,7 @@ The environment.png file must have a resolution of 200x200.
 
 Acknowledgements
 
-Thanks to Roger Alsing for sharing is initial code in Dec 2008.
+Thanks to Roger Alsing for sharing his initial code in Dec 2008.
 Also thanks to Michael Dougherty for his comments.
 
 Code originally written January 2009.  

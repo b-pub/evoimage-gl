@@ -17,20 +17,14 @@
  *  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
-#if defined(__APPLE__)
-  #include <OpenGL/gl.h>
-  #include <GLUT/glut.h>
-#else
-  #include <GL/gl.h>
-  #include <GL/glut.h>
-#endif // APPLE
-
+#include <cairo.h>
 #include <png.h>
 #include <unistd.h>
 #include <iostream>
 #include <stdio.h>
 #include <time.h>
 #include <pthread.h>
+#include <cmath>
 
 #include "Settings.h"
 #include "Tools.h"
@@ -46,12 +40,12 @@ static RawImage* renderDrawing(ei::DnaDrawing *d, bool returnRawImage);
 // global variables
 static int g_generationCount = 0;
 static int g_imageNum = 0;
-static const GLint g_width  = 200;
-static const GLint g_height = 200;
+static const int g_width  = 200;
+static const int g_height = 200;
 
 static RawImage *g_environmentImage;
 ei::DnaDrawing *g_lastDrawing = 0;
-double g_lastDifference;
+uint32_t g_lastDifference;
 
 time_t g_startTime = 0;
 time_t g_endTime = 0;
@@ -68,152 +62,82 @@ typedef struct {
 ProgramArgs g_programArgs = {300, 1, 10000, 50, 20, 0};
 
 
-static void initializeGl()
-{
-    // Stretch viewport and projection to twice what we want.
-    // Draw in left half, "last results" in right half
-    glViewport(0, 0, g_width, g_height);
-
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-    glOrtho(0.0, g_width,
-            0.0, g_height,
-            1.0, -1.0);
-
-    glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
-
-    glTranslatef(0.0f, g_height, 0.0f);     // move "up" in Y, 
-    glScalef(1.0f, -1.0f, 1.0f);            // then flip Y
-
-    glClearColor(0.0, 0.0, 0.0, 0.0);
-
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-}
-
-// GLUT callbacks
-
-/*
- * display() is the GLUT display callback that does a bit more
- * than redisplay the image. It displays the current image results
- * but also triggers mutations and renders mutants.
- */
-static void display()
-{
-    if (g_generationCount == 0)
-    {
-        if (!loadEnvironmentPng())
-            exit(0);
-    }
-    else if (g_generationCount == 1)
-    {
-        g_startTime = time(NULL);
-        generateFirstDrawing();
-    }
-    else if (g_generationCount > g_programArgs.generationLimit)
-    {
-        g_endTime = time(NULL);
-        std::cout << g_programArgs.generationLimit << " generations done in "
-                  << difftime(g_endTime, g_startTime) << " seconds" << std::endl;
-        glutIdleFunc(NULL);
-    }
-    else // all other increments
-    {
-        // 1. Periodically copy last results (if exist) to right
-        // half of window @(200,200)-(400,200)
-        glViewport(g_width, 0, g_width, g_height);
-        renderDrawing(g_lastDrawing, false);
-
-        // 2. render mutants in left half of window
-        // @(0,0)-(200,200)
-        glViewport(0, 0, g_width, g_height);
-        doNextMutation();
-    }
-
-    ++g_generationCount;
-}
-
-static void keyboard(unsigned char key, int x, int y)
-{
-    switch (key)
-    {
-      case 27: // ESC
-      case 'q':
-        exit(0);
-        break;
-
-      case 'i':
-        std::cout << "Current difference is " << g_lastDifference 
-                  << " at generation " << g_generationCount << ". "
-                  << g_lastDrawing->polygons()->size() << " polys, "
-                  << g_lastDrawing->pointCount() << " points"
-                  << std::endl;
-        break;
-    }
-}
-
-/*
- * mutationEngine() is the GLUT idle function that
- * triggers mutations by requesting redisplay.
- */
-static void mutationEngine()
-{
-    glutPostRedisplay();
-}
-
-static void visible(int vis)
-{
-    if (vis == GLUT_VISIBLE)
-        glutIdleFunc(mutationEngine);
-    else
-        glutIdleFunc(NULL);
-}
-
-
 // other imaging routines
 static RawImage* renderDrawing(ei::DnaDrawing *d, bool returnRawImage)
 {
-    // Do a clear (to black) of the current viewport via a rect, not a glClear():
-    glColor4f(0.0, 0.0, 0.0, 1.0);
-    glRectf(0.0f, 0.0f, g_width, g_height);
+    RawImage *img = 0;
+    cairo_surface_t *surface = 0;
+    cairo_t *ctx = 0;
 
-    // render image:
-    // * for each polygon:
-    ei::DnaPolygonList *polys = d->polygons();
-    ei::DnaPolygonList::iterator iter;
-    for (iter = polys->begin(); iter != polys->end(); iter++)
+    surface = cairo_image_surface_create(CAIRO_FORMAT_RGB24, g_width, g_height);
+    if (cairo_surface_status(surface) == CAIRO_STATUS_SUCCESS)
     {
-        // GL Abuse: DnaPolygon has no guarantee of being convex,
-        // so results are unpredictable. Try this for now.
-        glBegin(GL_POLYGON);
+        ctx = cairo_create(surface);
+        if (cairo_status(ctx) == CAIRO_STATUS_SUCCESS)
         {
-            ei::DnaPolygon *poly = *iter;
-            // ** allocate its color & alpha
-            ei::DnaBrush *brush = poly->brush();
-            glColor4b(brush->r, brush->g, brush->b, brush->a);
-            // ** render a closed polygon:
-            ei::DnaPointList *points = poly->points();
-            // *** translate points
-            for (int i=0; i < points->size(); i++)
+
+            // Clear the current buffer to black:
+            cairo_pattern_t *pattern = cairo_pattern_create_rgb(0.0, 0.0, 0.0);
+            cairo_set_source(ctx, pattern);
+            cairo_pattern_destroy(pattern);
+            cairo_paint(ctx);                       // fills clip region
+
+            // render image:
+            // * for each polygon:
+            ei::DnaPolygonList *polys = d->polygons();
+            ei::DnaPolygonList::iterator iter;
+            for (iter = polys->begin(); iter != polys->end(); iter++)
             {
-                glVertex2f( (*points)[i]->x, (*points)[i]->y);
+                ei::DnaPolygon *poly = *iter;
+                // Create path:
+                ei::DnaPointList &points = *(poly->points());
+                cairo_move_to(ctx, points[0]->x, points[0]->y);
+                for (int i=1; i < points.size(); i++)
+                {
+                    cairo_line_to(ctx, points[i]->x, points[i]->y);
+                }
+                cairo_close_path(ctx);
+
+                // ** allocate its color & alpha
+                ei::DnaBrush *brush = poly->brush();
+                cairo_set_source_rgba(ctx,
+                                      brush->r / 255.0, brush->g / 255.0,
+                                      brush->b / 255.0, brush->a / 255.0);
+
+                cairo_fill(ctx); // fill and consume path
+            }
+
+            if (returnRawImage)
+            {
+                img = new RawImage(g_width, g_height);
+
+                // copy RGB pixels to RawImage->getPixels()
+                if ((4 * g_width) == cairo_image_surface_get_stride(surface))
+                {
+                    // Cairo stores RGB into the low 24 bits of ints. Upper 8 isn't used.
+                    ubyte *src = (ubyte*)cairo_image_surface_get_data(surface);
+                    ubyte *dst = img->getPixels();
+                    for (int r=0; r<g_height; ++r)
+                    {
+                        for (int c=0; c<g_width; ++c)
+                        {
+                            dst[0] = src[2];
+                            dst[1] = src[1];
+                            dst[2] = src[0];
+
+                            dst += 3;
+                            src += 4;
+                        }
+                    }
+                }
             }
         }
-        glEnd();
-    }
-    glFinish();
-
-    RawImage *img = 0;
-
-    if (returnRawImage)
-    {
-        img = new RawImage(g_width, g_height);
-
-        glReadPixels(0, 0, g_width, g_height, GL_RGB,
-                     GL_UNSIGNED_BYTE, img->getPixels());
     }
 
+    if (ctx)
+        cairo_destroy(ctx);
+    if (surface)
+        cairo_surface_destroy(surface);
     return img;
 }
 
@@ -236,55 +160,60 @@ typedef struct {
     RawImage *newImage;
     int rowStart;
     int rowEnd;
-    double result;
+    uint32_t result;
 } diffImageMTArgs;
 
-void* diffImagesMT(void *arg)
+void* diffImagesWorker(void *arg)
 {
     diffImageMTArgs *args = (diffImageMTArgs*)arg;
-    double difference = 0.0;
+    uint32_t difference = 0;
     int x,y, mx = g_width, my = args->rowEnd;
 
     for (y = args->rowStart; y < my; y++)
         for (x = 0; x < mx; x++)
         {
-            GLubyte *c1 = args->oldImage->getPixelAt(x, y);
-            GLubyte *c2 = args->newImage->getPixelAt(x, g_height-y-1); // flip Y
+            ubyte *c1 = args->oldImage->getPixelAt(x, y);
+            ubyte *c2 = args->newImage->getPixelAt(x, g_height-y-1); // flip Y
             int r = c1[0] - c2[0];
             int g = c1[1] - c2[1];
             int b = c1[2] - c2[2];
-            difference += (r*r + g*g + b*b);
+            difference += (uint32_t)std::sqrt(r*r + g*g + b*b);
         }
     args->result = difference;
     return 0;
 }
 
-double diffImages(RawImage *oldImage, RawImage *newImage)
-{
-    double differenceEvens = 0.0;
-    double differenceOdds = 0.0;
+#define SINGLE_THREAD 1
 
-#if 0 // Set to 1 for single-thread processing
+#if SINGLE_THREAD
+
+uint32_t diffImages(RawImage *oldImage, RawImage *newImage)
+{
     diffImageMTArgs bottomArgs = {oldImage, newImage, 0, g_height, 0.0};
-    diffImagesMT(&bottomArgs);
+    diffImagesWorker(&bottomArgs);
     return bottomArgs.result;
+}
+
 #else
+
+uint32_t diffImages(RawImage *oldImage, RawImage *newImage)
+{
     // subthread runs top half
     pthread_t subThreadID = 0;
     diffImageMTArgs topArgs = {oldImage, newImage, 0, g_height/2, 0.0};
-    pthread_create(&subThreadID, NULL, diffImagesMT, &topArgs);
+    pthread_create(&subThreadID, NULL, diffImagesWorker, &topArgs);
 
     // main thread runs bottom half
     diffImageMTArgs bottomArgs = {oldImage, newImage, g_height/2, g_height, 0.0};
-    diffImagesMT(&bottomArgs);
+    diffImagesWorker(&bottomArgs);
 
     // main thread finishes, and waits for subthread
     void *unusedResults;
     pthread_join(subThreadID, &unusedResults);
 
     return topArgs.result + bottomArgs.result;
-#endif
 }
+#endif // !SINGLE_THREAD
 
 
 void usage()
@@ -424,6 +353,14 @@ static void generateFirstDrawing()
     delete tempImage;
 }
 
+static void generateLastDrawing()
+{
+    RawImage *tempImage = renderDrawing(g_lastDrawing, true);
+    tempImage->invertRowsOnWrite(true);
+    renderImageFile(tempImage, g_programArgs.generationLimit);
+    delete tempImage;
+}
+
 
 static void doNextMutation()
 {
@@ -433,7 +370,7 @@ static void doNextMutation()
     if (g_generationCount <= g_programArgs.generationLimit)
     {
         // Periodically report current convergence
-        if (0 == g_generationCount % 5000)
+        if (0 == g_generationCount % 2000)
         {
             std::cout << "Current difference is " << g_lastDifference 
                       << " at generation " << g_generationCount << ". "
@@ -442,7 +379,7 @@ static void doNextMutation()
                       << std::endl;
         }
 
-        // 1. Clone last drawing and mutate. Save as "newDrwg"
+        // 1. Clone last drawing and mutate.
         typedef struct {
             ei::DnaDrawing *drawing;
             RawImage       *image;
@@ -450,7 +387,7 @@ static void doNextMutation()
         DrawingInfo children[g_programArgs.numberOfChildren];
         int child;                          // looping index
         int minChild;                       // child with minimal difference
-        double newDifference;
+        uint32_t newDifference;
         for (child=0; child < g_programArgs.numberOfChildren; child++)
         {
             children[child].drawing = g_lastDrawing->clone();
@@ -458,7 +395,7 @@ static void doNextMutation()
 
             // 2. Calc difference between child and environment.
             children[child].image = renderDrawing(children[child].drawing, true);
-            double difference = diffImages(g_environmentImage, children[child].image);
+            uint32_t difference = diffImages(g_environmentImage, children[child].image);
 
             // Locate child with the best fit to environment (smallest difference)
             if (child == 0)
@@ -496,19 +433,6 @@ static void doNextMutation()
                 // if every = 100, then next after 171 is (171/100 + 1)*100 = 200
                 nextRenderedImage = ( (g_generationCount / g_programArgs.renderImageEvery + 1) *
                                       g_programArgs.renderImageEvery);
-
-#if 0
-                if (newDifference < 2.86891e7)
-                {
-                    std::cout << "Difference of " << newDifference
-                              << " reached at " << g_generationCount
-                              << " generations" << std::endl
-                              << "for a total of "
-                              << g_generationCount * g_programArgs.numberOfChildren
-                              << " mutations" << std::endl;
-                    g_generationCount = g_programArgs.generationLimit + 1; // terminate main loop
-                }
-#endif
             } // time to render an image
         } // new difference is lower
 
@@ -520,23 +444,12 @@ static void doNextMutation()
             delete children[child].drawing;
             delete children[child].image;
         }
-
-    } // for each generation...
-
-}
-
-void cleanup()
-{
-    std::cout << "Cleaning up" << std::endl;
-    delete g_lastDrawing;
-    delete g_environmentImage;
+    }
 }
 
 int main(int argc, char *argv[])
 {
     int nextRenderedImage = 0;
-
-    glutInit(&argc, argv);
 
     checkArgs(argc, argv);
     std::cout << "Settings:" << std::endl
@@ -558,17 +471,32 @@ int main(int argc, char *argv[])
     settings.setPointsPerPolygonMax(g_programArgs.pointsMax);
     settings.activate();
 
-    glutInitDisplayMode(GLUT_SINGLE | GLUT_RGBA);
-    glutInitWindowSize(g_width * 2, g_height);
-    glutInitWindowPosition(50, 50);
-    glutCreateWindow(argv[0]);
+    // Iterate the generations
+    if (!loadEnvironmentPng())
+        exit(0);
 
-    initializeGl();
+    g_startTime = time(NULL);
+    while (g_generationCount <= g_programArgs.generationLimit) {
+        if (g_generationCount == 0)
+        {
+            g_startTime = time(NULL);
+            generateFirstDrawing();
+        }
+        else // all other increments
+        {
+            doNextMutation();
+        }
 
-    glutDisplayFunc(display); 
-    glutKeyboardFunc(keyboard);
-    glutVisibilityFunc(visible);
-    glutMainLoop();
+        ++g_generationCount;
+    }
+    g_endTime = time(NULL);
+    std::cout << g_programArgs.generationLimit << " generations done in "
+              << difftime(g_endTime, g_startTime) << " seconds" << std::endl;
+
+    generateLastDrawing();
+
+    delete g_lastDrawing;
+    delete g_environmentImage;
 
     return 0;
 }
