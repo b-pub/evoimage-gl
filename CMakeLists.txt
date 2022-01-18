@@ -42,25 +42,25 @@ include_directories(inc ${PNG_INCLUDE_DIRS} ${CAIRO_INCLUDE_DIRS})
 # evoimagegl is the primary image evolver. This command-line program
 # renders current mutations in the OpenGL window.
 #
-add_executable(evoimagegl
-    src/evoimagegl.cpp
-)
-target_link_libraries(evoimagegl
-    engine
-    ${OPENGL_LIBRARIES}
-    ${GLUT_LIBRARIES}
-    ${PNG_LIBRARIES}
-)
+#add_executable(evoimagegl
+#    src/evoimagegl.cpp
+#)
+#target_link_libraries(evoimagegl
+#    engine
+#    ${OPENGL_LIBRARIES}
+#    ${GLUT_LIBRARIES}
+#    ${PNG_LIBRARIES}
+#)
 
 #
 # test_mutation is a command-line program that exercises the mutation engine
 #
-add_executable(test_mutation
-    src/test_mutation.cpp
-)
-target_link_libraries(test_mutation
-    engine
-)
+#add_executable(test_mutation
+#    src/test_mutation.cpp
+#)
+#target_link_libraries(test_mutation
+#    engine
+#)
 
 #
 # evoimagecairo is another tool that uses the Cairo graphics lib for rendering

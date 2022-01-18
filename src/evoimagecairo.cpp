@@ -18,24 +18,24 @@
  */
 
 #include <cairo.h>
-#include <png.h>
 #include <unistd.h>
 #include <iostream>
 #include <stdio.h>
 #include <time.h>
 #include <pthread.h>
 #include <cmath>
+#include <cstdint>
+#include <string>
 
 #include "Settings.h"
 #include "Tools.h"
 #include "DnaDrawing.h"
-#include "RawImage.h"
 
 // Func prototypes
 static void doNextMutation();               // do next mutation & compare
 static void generateFirstDrawing();
 static int loadEnvironmentPng();
-static RawImage* renderDrawing(ei::DnaDrawing *d, bool returnRawImage);
+static cairo_surface_t *renderDrawing(ei::DnaDrawing *d);
 
 // global variables
 static int g_generationCount = 0;
@@ -43,7 +43,7 @@ static int g_imageNum = 0;
 static const int g_width  = 200;
 static const int g_height = 200;
 
-static RawImage *g_environmentImage;
+static cairo_surface_t *g_environmentImage;
 ei::DnaDrawing *g_lastDrawing = 0;
 uint32_t g_lastDifference;
 
@@ -57,15 +57,15 @@ typedef struct {
     int polygonsMax;
     int pointsMax;
     char *environmentFilename;
+    std::string jsonFilename;
 } ProgramArgs;
 
 ProgramArgs g_programArgs = {300, 1, 10000, 50, 20, 0};
 
 
 // other imaging routines
-static RawImage* renderDrawing(ei::DnaDrawing *d, bool returnRawImage)
+static cairo_surface_t* renderDrawing(ei::DnaDrawing *d)
 {
-    RawImage *img = 0;
     cairo_surface_t *surface = 0;
     cairo_t *ctx = 0;
 
@@ -106,58 +106,44 @@ static RawImage* renderDrawing(ei::DnaDrawing *d, bool returnRawImage)
 
                 cairo_fill(ctx); // fill and consume path
             }
-
-            if (returnRawImage)
-            {
-                img = new RawImage(g_width, g_height);
-
-                // copy RGB pixels to RawImage->getPixels()
-                if ((4 * g_width) == cairo_image_surface_get_stride(surface))
-                {
-                    // Cairo stores RGB into the low 24 bits of ints. Upper 8 isn't used.
-                    ubyte *src = (ubyte*)cairo_image_surface_get_data(surface);
-                    ubyte *dst = img->getPixels();
-                    for (int r=0; r<g_height; ++r)
-                    {
-                        for (int c=0; c<g_width; ++c)
-                        {
-                            dst[0] = src[2];
-                            dst[1] = src[1];
-                            dst[2] = src[0];
-
-                            dst += 3;
-                            src += 4;
-                        }
-                    }
-                }
-            }
         }
+        else                    // context could not be allocated
+        {
+            cairo_destroy(ctx);
+            ctx = 0;
+            cairo_surface_destroy(surface);
+            surface = 0;
+        }
+    }
+    else                        // surface could not be allocated
+    {
+        cairo_surface_destroy(surface);
+        surface = 0;
     }
 
     if (ctx)
         cairo_destroy(ctx);
-    if (surface)
-        cairo_surface_destroy(surface);
-    return img;
+
+    return surface;
 }
 
 
-void renderImageFile(RawImage *image, int imageIndex)
+void renderImageFile(cairo_surface_t *image, int imageIndex)
 {
     // make new output image file
     char filename[100];
     sprintf(filename, "mutations/evoimg-%07d.png", imageIndex);
 
     // write image out to file
-    image->writeToPng(filename);
+    cairo_surface_write_to_png(image, filename);
 }
 
 /*
  * A multithreaded implementation.
  */
 typedef struct {
-    RawImage *oldImage;
-    RawImage *newImage;
+    cairo_surface_t *oldImage;
+    cairo_surface_t *newImage;
     int rowStart;
     int rowEnd;
     uint32_t result;
@@ -170,15 +156,22 @@ void* diffImagesWorker(void *arg)
     int x,y, mx = g_width, my = args->rowEnd;
 
     for (y = args->rowStart; y < my; y++)
+    {
+        uint8_t *rowOld = (cairo_image_surface_get_data(args->oldImage) +
+                           y * cairo_image_surface_get_stride(args->oldImage));
+        uint8_t *rowNew = (cairo_image_surface_get_data(args->newImage) +
+                           y * cairo_image_surface_get_stride(args->newImage));
+
         for (x = 0; x < mx; x++)
         {
-            ubyte *c1 = args->oldImage->getPixelAt(x, y);
-            ubyte *c2 = args->newImage->getPixelAt(x, g_height-y-1); // flip Y
-            int r = c1[0] - c2[0];
+            uint8_t *c1 = (rowOld + x * 4);
+            uint8_t *c2 = (rowNew + x * 4);
+            int r = c1[2] - c2[2];
             int g = c1[1] - c2[1];
-            int b = c1[2] - c2[2];
+            int b = c1[0] - c2[0];
             difference += (uint32_t)std::sqrt(r*r + g*g + b*b);
         }
+    }
     args->result = difference;
     return 0;
 }
@@ -187,7 +180,7 @@ void* diffImagesWorker(void *arg)
 
 #if SINGLE_THREAD
 
-uint32_t diffImages(RawImage *oldImage, RawImage *newImage)
+uint32_t diffImages(cairo_surface_t *oldImage, cairo_surface_t *newImage)
 {
     diffImageMTArgs bottomArgs = {oldImage, newImage, 0, g_height, 0.0};
     diffImagesWorker(&bottomArgs);
@@ -196,7 +189,7 @@ uint32_t diffImages(RawImage *oldImage, RawImage *newImage)
 
 #else
 
-uint32_t diffImages(RawImage *oldImage, RawImage *newImage)
+uint32_t diffImages(cairo_surface_t *oldImage, cairo_surface_t *newImage)
 {
     // subthread runs top half
     pthread_t subThreadID = 0;
@@ -218,16 +211,17 @@ uint32_t diffImages(RawImage *oldImage, RawImage *newImage)
 
 void usage()
 {
-    std::cout << "usage: evoimage [options] environment.png" << std::endl
-              << "Options:" << std::endl
-              << "    -r n    Render every n generations (default 300)" << std::endl
-              << "    -g n    Limit generations to n (default 10000)" << std::endl
-              << "    -c n    Generate n (n=1..10) children per generation (default 1)" << std::endl
-              << "    -s seed Initialize random number generator with seed" << std::endl
-              << "    -p n    Set maximum number of polygons used (default 50)" << std::endl
-              << "    -v n    Set maximum number of vertices/polygon used (default 20)" << std::endl
+    std::cout << "usage: evoimage [options] environment.png\n"
+              << "Options:\n"
+              << "    -r n    Render every n generations (default 300)\n"
+              << "    -g n    Limit generations to n (default 10000)\n"
+              << "    -c n    Generate n (n=1..10) children per generation (default 1)\n"
+              << "    -s seed Initialize random number generator with seed\n"
+              << "    -p n    Set maximum number of polygons used (default 50)\n"
+              << "    -v n    Set maximum number of vertices/polygon used (default 20)\n"
+              << "    -j file Save final image geometry as JSON 'file'\n"
               << std::endl
-              << "The environment.png file must have a resolution of 200x200."  << std::endl;
+              << "The environment.png file must have a resolution of 200x200.\n";
     exit(1);
 }
 
@@ -242,7 +236,7 @@ void checkArgs(int argc, char *argv[])
           case 'r':
             if (1 != sscanf(optarg, "%d", &temp))
             {
-                std::cout << "invalid number for -r" << std::endl;
+                std::cout << "invalid number for -r\n";
                 usage();
             }
             g_programArgs.renderImageEvery = temp;
@@ -250,7 +244,7 @@ void checkArgs(int argc, char *argv[])
           case 'g':
             if (1 != sscanf(optarg, "%d", &temp))
             {
-                std::cout << "invalid number for -g" << std::endl;
+                std::cout << "invalid number for -g\n";
                 usage();
             }
             g_programArgs.generationLimit = temp;
@@ -258,7 +252,7 @@ void checkArgs(int argc, char *argv[])
           case 'c':
             if (1 != sscanf(optarg, "%d", &temp))
             {
-                std::cout << "invalid number for -c" << std::endl;
+                std::cout << "invalid number for -c\n";
                 usage();
             }
             g_programArgs.numberOfChildren = temp;
@@ -266,7 +260,7 @@ void checkArgs(int argc, char *argv[])
           case 's':
             if (1 != sscanf(optarg, "%d", &temp))
             {
-                std::cout << "invalid number for -s" << std::endl;
+                std::cout << "invalid number for -s\n";
                 usage();
             }
             std::cout << "Seeding rand() with " << temp << std::endl;
@@ -275,7 +269,7 @@ void checkArgs(int argc, char *argv[])
           case 'p':
             if (1 != sscanf(optarg, "%d", &temp))
             {
-                std::cout << "invalid number for -p" << std::endl;
+                std::cout << "invalid number for -p\n";
                 usage();
             }
             g_programArgs.polygonsMax = temp;
@@ -283,15 +277,19 @@ void checkArgs(int argc, char *argv[])
           case 'v':
             if (1 != sscanf(optarg, "%d", &temp))
             {
-                std::cout << "invalid number for -v" << std::endl;
+                std::cout << "invalid number for -v\n";
                 usage();
             }
             if (temp < 3)
             {
-                std::cout << "warning: polygons need at least 3 vertices (fixed)" << std::endl;
+                std::cout << "warning: polygons need at least 3 vertices (fixed)\n";
                 temp = 3;
             }
             g_programArgs.pointsMax = temp;
+            break;
+
+          case 'j':
+            g_programArgs.jsonFilename = optarg;
             break;
 
           default:
@@ -310,7 +308,7 @@ void checkArgs(int argc, char *argv[])
     }
     else
     {
-        std::cout << "No environment image file given." << std::endl;
+        std::cout << "No environment image file given.\n";
         usage();
     }
     // Sanity check arguments
@@ -319,7 +317,7 @@ void checkArgs(int argc, char *argv[])
         g_programArgs.generationLimit < 1
         )
     {
-        std::cout << "Invalid values for some arguments given." << std::endl;
+        std::cout << "Invalid values for some arguments given.\n";
         usage();
     }
 }
@@ -327,8 +325,8 @@ void checkArgs(int argc, char *argv[])
 static int loadEnvironmentPng()
 {
     // Load environment image and perform sanity checks
-    g_environmentImage = new RawImage(g_width, g_height);
-    if (!g_environmentImage->readFromPng(g_programArgs.environmentFilename))
+    g_environmentImage = cairo_image_surface_create_from_png(g_programArgs.environmentFilename);
+    if (cairo_surface_status(g_environmentImage) != CAIRO_STATUS_SUCCESS)
     {
         std::cout << "Could not open " << g_programArgs.environmentFilename << std::endl;
         return 0;
@@ -337,30 +335,26 @@ static int loadEnvironmentPng()
     return 1;
 }
 
-
 static void generateFirstDrawing()
 {
     // Generate 1st Drawing. Calc difference. Save image&diff as "last".
     g_lastDrawing = new ei::DnaDrawing();
     g_lastDrawing->init();
-    RawImage *tempImage = renderDrawing(g_lastDrawing, true);
+    cairo_surface_t *tempImage = renderDrawing(g_lastDrawing);
     g_lastDifference = diffImages(g_environmentImage, tempImage);
 
     renderImageFile(g_environmentImage, 0);     // save environment as 0
-    tempImage->invertRowsOnWrite(true);
     renderImageFile(tempImage, 1);       // always save off first specimen as 1
     std::cout << "Initial difference = " << g_lastDifference << std::endl;
-    delete tempImage;
+    cairo_surface_destroy(tempImage);
 }
 
 static void generateLastDrawing()
 {
-    RawImage *tempImage = renderDrawing(g_lastDrawing, true);
-    tempImage->invertRowsOnWrite(true);
+    cairo_surface_t *tempImage = renderDrawing(g_lastDrawing);
     renderImageFile(tempImage, g_programArgs.generationLimit);
-    delete tempImage;
+    cairo_surface_destroy(tempImage);
 }
-
 
 static void doNextMutation()
 {
@@ -381,20 +375,23 @@ static void doNextMutation()
 
         // 1. Clone last drawing and mutate.
         typedef struct {
-            ei::DnaDrawing *drawing;
-            RawImage       *image;
+            ei::DnaDrawing  *drawing;
+            cairo_surface_t *image;
         } DrawingInfo;
+
         DrawingInfo children[g_programArgs.numberOfChildren];
+
         int child;                          // looping index
         int minChild;                       // child with minimal difference
         uint32_t newDifference;
+
         for (child=0; child < g_programArgs.numberOfChildren; child++)
         {
             children[child].drawing = g_lastDrawing->clone();
             children[child].drawing->mutate();
 
             // 2. Calc difference between child and environment.
-            children[child].image = renderDrawing(children[child].drawing, true);
+            children[child].image = renderDrawing(children[child].drawing);
             uint32_t difference = diffImages(g_environmentImage, children[child].image);
 
             // Locate child with the best fit to environment (smallest difference)
@@ -428,7 +425,6 @@ static void doNextMutation()
             // but limit it to sparse changes.
             if (g_generationCount > nextRenderedImage)
             {
-                children[minChild].image->invertRowsOnWrite(true);
                 renderImageFile(children[minChild].image, g_generationCount);
                 // if every = 100, then next after 171 is (171/100 + 1)*100 = 200
                 nextRenderedImage = ( (g_generationCount / g_programArgs.renderImageEvery + 1) *
@@ -442,7 +438,7 @@ static void doNextMutation()
         for (child=0; child < g_programArgs.numberOfChildren; child++)
         {
             delete children[child].drawing;
-            delete children[child].image;
+            cairo_surface_destroy(children[child].image);
         }
     }
 }
@@ -452,7 +448,7 @@ int main(int argc, char *argv[])
     int nextRenderedImage = 0;
 
     checkArgs(argc, argv);
-    std::cout << "Settings:" << std::endl
+    std::cout << "Settings:\n"
               << "    rendering image every ~"
               << g_programArgs.renderImageEvery << std::endl
               << "    children/generation: "
@@ -491,12 +487,12 @@ int main(int argc, char *argv[])
     }
     g_endTime = time(NULL);
     std::cout << g_programArgs.generationLimit << " generations done in "
-              << difftime(g_endTime, g_startTime) << " seconds" << std::endl;
+              << difftime(g_endTime, g_startTime) << " seconds\n";
 
     generateLastDrawing();
 
     delete g_lastDrawing;
-    delete g_environmentImage;
+    cairo_surface_destroy(g_environmentImage);
 
     return 0;
 }
