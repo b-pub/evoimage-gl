@@ -23,7 +23,13 @@
 
 namespace ei
 {
-    DnaBrush::DnaBrush(int R, int G, int B, int A) : r(R), g(G), b(B), a(A)
+    DnaBrush::DnaBrush()
+    {
+        init();
+    }
+
+    DnaBrush::DnaBrush(int R, int G, int B, int A)
+        : r(R), g(G), b(B), a(A)
     { }
 
     DnaBrush::~DnaBrush()
@@ -42,30 +48,30 @@ namespace ei
         return new DnaBrush(r,g,b,a);
     }
 
-    void DnaBrush::mutate(DnaDrawing *drawing)
+    void DnaBrush::mutate(DnaDrawing &drawing)
     {
         if (Tools::willMutate(Settings::activeRedMutationRate))
         {
             r = Tools::getRandomNumber(Settings::activeRedRangeMin, Settings::activeRedRangeMax);
-            drawing->setDirty();
+            drawing.setDirty();
         }
 
         if (Tools::willMutate(Settings::activeGreenMutationRate))
         {
             g = Tools::getRandomNumber(Settings::activeGreenRangeMin, Settings::activeGreenRangeMax);
-            drawing->setDirty();
+            drawing.setDirty();
         }
 
         if (Tools::willMutate(Settings::activeBlueMutationRate))
         {
             b = Tools::getRandomNumber(Settings::activeBlueRangeMin, Settings::activeBlueRangeMax);
-            drawing->setDirty();
+            drawing.setDirty();
         }
 
         if (Tools::willMutate(Settings::activeAlphaMutationRate))
         {
             a = Tools::getRandomNumber(Settings::activeAlphaRangeMin, Settings::activeAlphaRangeMax);
-            drawing->setDirty();
+            drawing.setDirty();
         }
     }
 }

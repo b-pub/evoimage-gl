@@ -30,6 +30,7 @@ namespace ei
         int b;                              // property
         int a;                              // property
 
+        DnaBrush();
         DnaBrush(int R, int G, int B, int A);
         ~DnaBrush();
 
@@ -37,6 +38,6 @@ namespace ei
 
         DnaBrush *clone();
 
-        void mutate(DnaDrawing *drawing);
+        void mutate(DnaDrawing &drawing);
     };
 }

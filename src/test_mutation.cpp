@@ -32,7 +32,7 @@ int main(int argc, char *argv[])
 
     // do stuff
     std::cout << "Drawing has " << drawing->pointCount() << " points in "
-              << drawing->polygons()->size() << " polygons" << std::endl;
+              << drawing->polygons().size() << " polygons" << std::endl;
     std::cout << "Cloning drawing into d2" << std::endl;
     ei::DnaDrawing *d2 = drawing->clone();
     std::cout << "Drawing2 has " << d2->pointCount() << " points" << std::endl;
@@ -40,10 +40,13 @@ int main(int argc, char *argv[])
     std::cout << "Mutating d2 100,000 times..." << std::endl;
     for (int i=0; i<100000; i++)
     {
+        ei::DnaDrawing *old = d2;
+        d2 = old->clone();                  // to time object copies
         d2->mutate();
+        delete old;
     }
     std::cout << "Drawing2 has " << d2->pointCount() << " points in "
-              << d2->polygons()->size() << " polygons" << std::endl;
+              << d2->polygons().size() << " polygons" << std::endl;
 
     std::cout << "Cleaning up" << std::endl;
     delete drawing;
@@ -51,3 +54,13 @@ int main(int argc, char *argv[])
 
     return 0;
 }
+
+/*
+ * With the 100,000 iteration loop above (clone + mutate):
+ *
+ * Original code: Dna engine uses dynamic memory everywhere.
+ * runtime: 5.55s.
+ *
+ * Dna engine uses values in std::vectors, gross copy/assignment, references:
+ * runtime: 0.570s
+ */

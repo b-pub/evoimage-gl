@@ -24,39 +24,26 @@
 
 namespace ei
 {
-    DnaDrawing::DnaDrawing() : m_polygons(0), m_dirty(true)
+    DnaDrawing::DnaDrawing()
+        : m_dirty(true)
     {
-    }
-
-    DnaDrawing::~DnaDrawing()
-    {
-        setPolygons(0);
+        init();
     }
 
     void DnaDrawing::init()
     {
-        setPolygons(new DnaPolygonList());
+        m_polygons.clear();
         for (int i=0; i < Settings::activePolygonsMin; i++)
             addPolygon();
         setDirty();
     }
 
-    DnaPolygonList* DnaDrawing::polygons()
+    DnaPolygonList& DnaDrawing::polygons()
     { return m_polygons; }
 
-    void DnaDrawing::setPolygons(DnaPolygonList *polygons)
+    void DnaDrawing::setPolygons(DnaPolygonList const &polygons)
     {
-        // free old
-        if (m_polygons)
-        {
-            DnaPolygonList::iterator iter;
-            for (iter = m_polygons->begin(); iter != m_polygons->end(); iter++)
-            {
-                delete *iter;
-            }
-            delete m_polygons;
-        }
-        // save new
+        m_polygons.clear();
         m_polygons = polygons;
     }
 
@@ -70,14 +57,11 @@ namespace ei
     {
         int sum = 0;
 
-        if (0 == m_polygons)
-            return sum;
-
         // iterate over polygons, get size of each.
         DnaPolygonList::iterator iter;
-        for (iter = m_polygons->begin(); iter != m_polygons->end(); iter++)
+        for (iter = m_polygons.begin(); iter != m_polygons.end(); iter++)
         {
-            sum += (*iter)->pointCount();
+            sum += iter->pointCount();
         }
         return sum;
     }
@@ -85,57 +69,47 @@ namespace ei
     DnaDrawing* DnaDrawing::clone()
     {
         DnaDrawing *dd = new DnaDrawing();
-
-        if (0 == m_polygons)
-            return dd;
-
-        DnaPolygonList *newplist = new DnaPolygonList();
-
-        DnaPolygonList::iterator iter;
-        for (iter = m_polygons->begin(); iter != m_polygons->end(); iter++)
-        {
-            newplist->push_back( (*iter)->clone() );
-        }
-
-        dd->setPolygons(newplist);
+        dd->m_polygons = m_polygons;
         return dd;
     }
 
     void DnaDrawing::mutate()
     {
         if (Tools::willMutate(Settings::activeAddPolygonMutationRate))
+        {
             addPolygon();
+        }
 
         if (Tools::willMutate(Settings::activeRemovePolygonMutationRate))
+        {
             removePolygon();
+        }
 
         if (Tools::willMutate(Settings::activeMovePolygonMutationRate))
+        {
             movePolygon();
+        }
 
         DnaPolygonList::iterator iter;
-        for (iter = m_polygons->begin(); iter != m_polygons->end(); iter++)
+        for (iter = m_polygons.begin(); iter != m_polygons.end(); iter++)
         {
-            (*iter)->mutate(this);
+            iter->mutate(*this);
         }
     }
 
     void DnaDrawing::addPolygon()
     {
-        if (0 == m_polygons)
-            return;
-
-        if (m_polygons->size() < Settings::activePolygonsMax)
+        if (m_polygons.size() < Settings::activePolygonsMax)
         {
-            DnaPolygon *poly = new DnaPolygon();
-            poly->init();
-            if (m_polygons->size() > 0)
+            DnaPolygon poly;
+            if (m_polygons.size() > 2)
             {
-                int index = Tools::getRandomNumber(0, m_polygons->size()-1);
-                m_polygons->insert(m_polygons->begin() + index, poly);
+                int index = Tools::getRandomNumber(0, m_polygons.size()-1);
+                m_polygons.insert(m_polygons.begin() + index, poly);
             }
             else
             {
-                m_polygons->push_back(poly);
+                m_polygons.push_back(poly);
             }
             setDirty();
         }
@@ -143,29 +117,25 @@ namespace ei
 
     void DnaDrawing::removePolygon()
     {
-        if (0 == m_polygons)
-            return;
-
-        if (m_polygons->size() > Settings::activePolygonsMin)
+        if (m_polygons.size() > Settings::activePolygonsMin)
         {
-            int index = Tools::getRandomNumber(0, m_polygons->size()-1);
-            DnaPolygon *poly = (*m_polygons)[index];
-            m_polygons->erase(m_polygons->begin() + index);
-            delete poly;
+            int index = Tools::getRandomNumber(0, m_polygons.size()-1);
+            m_polygons.erase(m_polygons.begin() + index);
             setDirty();
         }
     }
 
     void DnaDrawing::movePolygon()
     {
-        if (0 == m_polygons ||
-            m_polygons->size() < 2)
+        if (m_polygons.size() < 2)
             return;
 
-        // Move a polygon = change the drawing order of one polygon
-        int a = Tools::getRandomNumber(0, m_polygons->size()-1),
-            b = Tools::getRandomNumber(0, m_polygons->size()-1);
-        std::swap((*m_polygons)[a], (*m_polygons)[b]);
-        setDirty();
+        // Move a polygon = change the drawing order of two polygons
+        int a = Tools::getRandomNumber(0, m_polygons.size()-1),
+            b = Tools::getRandomNumber(0, m_polygons.size()-1);
+        if (a != b) {
+            std::swap(m_polygons[a], m_polygons[b]);
+            setDirty();
+        }
     }
 }

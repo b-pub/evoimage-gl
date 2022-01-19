@@ -33,14 +33,12 @@ namespace ei
       public:
 
         DnaPoint(int X, int Y);
-        ~DnaPoint();
+        DnaPoint();
 
-        void init();
+        DnaPoint clone();
 
-        DnaPoint *clone();
-
-        void mutate(DnaDrawing *drawing);
+        void mutate(DnaDrawing &drawing);
     };
 
-    typedef std::vector<DnaPoint*> DnaPointList;
+    typedef std::vector<DnaPoint> DnaPointList;
 }

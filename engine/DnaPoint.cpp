@@ -23,30 +23,27 @@
 
 namespace ei
 {
-    DnaPoint::DnaPoint(int X, int Y) : x(X), y(Y)
+    DnaPoint::DnaPoint(int X, int Y)
+        : x(X), y(Y)
     { }
 
-    DnaPoint::~DnaPoint()
+    DnaPoint::DnaPoint()
+        : x(Tools::getRandomNumber(0, Tools::maxWidth))
+        , y(Tools::getRandomNumber(0, Tools::maxHeight))
     { }
 
-    void DnaPoint::init()
+    DnaPoint DnaPoint::clone()
     {
-        x = Tools::getRandomNumber(0, Tools::maxWidth);
-        y = Tools::getRandomNumber(0, Tools::maxHeight);
+        return DnaPoint(x, y);
     }
 
-    DnaPoint *DnaPoint::clone()
-    {
-        return new DnaPoint(x, y);
-    }
-
-    void DnaPoint::mutate(DnaDrawing *drawing)
+    void DnaPoint::mutate(DnaDrawing &drawing)
     {
         if (Tools::willMutate(Settings::activeMovePointMaxMutationRate))
         {
             x = Tools::getRandomNumber(0, Tools::maxWidth);
             y = Tools::getRandomNumber(0, Tools::maxHeight);
-            drawing->setDirty();
+            drawing.setDirty();
         }
 
         if (Tools::willMutate(Settings::activeMovePointMidMutationRate))
@@ -59,7 +56,7 @@ namespace ei
                                    y + Tools::getRandomNumber(-Settings::activeMovePointRangeMid,
                                                               Settings::activeMovePointRangeMid)),
                           Tools::maxHeight);
-            drawing->setDirty();
+            drawing.setDirty();
         }
 
         if (Tools::willMutate(Settings::activeMovePointMinMutationRate))
@@ -72,7 +69,7 @@ namespace ei
                                    y + Tools::getRandomNumber(-Settings::activeMovePointRangeMin,
                                                               Settings::activeMovePointRangeMin)),
                           Tools::maxHeight);
-            drawing->setDirty();
+            drawing.setDirty();
         }
     }
 }

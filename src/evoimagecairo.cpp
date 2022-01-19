@@ -84,25 +84,25 @@ static cairo_surface_t* renderDrawing(ei::DnaDrawing *d)
 
             // render image:
             // * for each polygon:
-            ei::DnaPolygonList *polys = d->polygons();
+            ei::DnaPolygonList &polys = d->polygons();
             ei::DnaPolygonList::iterator iter;
-            for (iter = polys->begin(); iter != polys->end(); iter++)
+            for (iter = polys.begin(); iter != polys.end(); iter++)
             {
-                ei::DnaPolygon *poly = *iter;
+                ei::DnaPolygon &poly = *iter;
                 // Create path:
-                ei::DnaPointList &points = *(poly->points());
-                cairo_move_to(ctx, points[0]->x, points[0]->y);
+                ei::DnaPointList &points = poly.points();
+                cairo_move_to(ctx, points[0].x, points[0].y);
                 for (int i=1; i < points.size(); i++)
                 {
-                    cairo_line_to(ctx, points[i]->x, points[i]->y);
+                    cairo_line_to(ctx, points[i].x, points[i].y);
                 }
                 cairo_close_path(ctx);
 
                 // ** allocate its color & alpha
-                ei::DnaBrush *brush = poly->brush();
+                ei::DnaBrush &brush = poly.brush();
                 cairo_set_source_rgba(ctx,
-                                      brush->r / 255.0, brush->g / 255.0,
-                                      brush->b / 255.0, brush->a / 255.0);
+                                      brush.r / 255.0, brush.g / 255.0,
+                                      brush.b / 255.0, brush.a / 255.0);
 
                 cairo_fill(ctx); // fill and consume path
             }
@@ -368,7 +368,7 @@ static void doNextMutation()
         {
             std::cout << "Current difference is " << g_lastDifference 
                       << " at generation " << g_generationCount << ". "
-                      << g_lastDrawing->polygons()->size() << " polys, "
+                      << g_lastDrawing->polygons().size() << " polys, "
                       << g_lastDrawing->pointCount() << " points"
                       << std::endl;
         }

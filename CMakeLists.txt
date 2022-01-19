@@ -55,12 +55,12 @@ include_directories(inc ${PNG_INCLUDE_DIRS} ${CAIRO_INCLUDE_DIRS})
 #
 # test_mutation is a command-line program that exercises the mutation engine
 #
-#add_executable(test_mutation
-#    src/test_mutation.cpp
-#)
-#target_link_libraries(test_mutation
-#    engine
-#)
+add_executable(test_mutation
+    src/test_mutation.cpp
+)
+target_link_libraries(test_mutation
+    engine
+)
 
 #
 # evoimagecairo is another tool that uses the Cairo graphics lib for rendering

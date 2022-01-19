@@ -25,18 +25,17 @@ namespace ei
     class DnaDrawing
     {
       protected:
-        DnaPolygonList *m_polygons; // property
+        DnaPolygonList m_polygons;
         bool            m_dirty;
 
       public:
         DnaDrawing();
-        ~DnaDrawing();
 
         void init();
 
         // polygons property
-        DnaPolygonList* polygons();
-        void setPolygons(DnaPolygonList *polygons);
+        DnaPolygonList& polygons();
+        void setPolygons(DnaPolygonList const &polygons);
 
         bool dirty();
         void setDirty();

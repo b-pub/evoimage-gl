@@ -29,8 +29,8 @@ namespace ei
     class DnaPolygon
     {
       protected:
-        DnaPointList *m_points;             // property
-        DnaBrush     *m_brush;              // property
+        DnaPointList m_points;
+        DnaBrush     m_brush;
 
       public:
         DnaPolygon();
@@ -38,20 +38,20 @@ namespace ei
 
         void init();
 
-        DnaPointList *points();
-        void setPoints(DnaPointList *points);
+        DnaPointList &points();
+        void setPoints(DnaPointList const &points);
 
-        DnaBrush *brush();
-        void setBrush(DnaBrush *Brush);
+        DnaBrush &brush();
+        void setBrush(DnaBrush const &Brush);
 
         DnaPolygon *clone();
 
-        int pointCount();
+        size_t pointCount();
 
-        void mutate(DnaDrawing *drawing);
-        void addPoint(DnaDrawing *drawing);
-        void removePoint(DnaDrawing *drawing);
+        void mutate(DnaDrawing &drawing);
+        void addPoint(DnaDrawing &drawing);
+        void removePoint(DnaDrawing &drawing);
     };
 
-    typedef std::vector<DnaPolygon*> DnaPolygonList;
+    typedef std::vector<DnaPolygon> DnaPolygonList;
 }
