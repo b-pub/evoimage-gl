@@ -20,12 +20,15 @@
 #include <cairo.h>
 #include <unistd.h>
 #include <iostream>
+#include <fstream>
 #include <stdio.h>
 #include <time.h>
 #include <pthread.h>
 #include <cmath>
 #include <cstdint>
 #include <string>
+#include <json/json.h>
+#include <memory>
 
 #include "Settings.h"
 #include "Tools.h"
@@ -182,7 +185,7 @@ void* diffImagesWorker(void *arg)
 
 uint32_t diffImages(cairo_surface_t *oldImage, cairo_surface_t *newImage)
 {
-    diffImageMTArgs bottomArgs = {oldImage, newImage, 0, g_height, 0.0};
+    diffImageMTArgs bottomArgs = {oldImage, newImage, 0, g_height, 0};
     diffImagesWorker(&bottomArgs);
     return bottomArgs.result;
 }
@@ -193,11 +196,11 @@ uint32_t diffImages(cairo_surface_t *oldImage, cairo_surface_t *newImage)
 {
     // subthread runs top half
     pthread_t subThreadID = 0;
-    diffImageMTArgs topArgs = {oldImage, newImage, 0, g_height/2, 0.0};
+    diffImageMTArgs topArgs = {oldImage, newImage, 0, g_height/2, 0};
     pthread_create(&subThreadID, NULL, diffImagesWorker, &topArgs);
 
     // main thread runs bottom half
-    diffImageMTArgs bottomArgs = {oldImage, newImage, g_height/2, g_height, 0.0};
+    diffImageMTArgs bottomArgs = {oldImage, newImage, g_height/2, g_height, 0};
     diffImagesWorker(&bottomArgs);
 
     // main thread finishes, and waits for subthread
@@ -229,7 +232,7 @@ void checkArgs(int argc, char *argv[])
 {
     int option;
     int temp;
-    while (-1 != (option = getopt(argc, argv, "r:g:c:s:p:v:")) )
+    while (-1 != (option = getopt(argc, argv, "r:g:c:s:p:v:j:")) )
     {
         switch (option)
         {
@@ -443,6 +446,68 @@ static void doNextMutation()
     }
 }
 
+/*
+ * Write out drawing's polygons in JSON, if a filename was given.
+ */
+void saveDrawingJson(ei::DnaDrawing *drawing)
+{
+    if (0 == g_programArgs.jsonFilename.length())
+        return;
+
+    std::ofstream outfile(g_programArgs.jsonFilename);
+    if (!outfile.is_open())
+    {
+        std::cout << "Cannot open JSON output file "
+                  << g_programArgs.jsonFilename << std::endl;
+        return;
+    }
+
+    /*
+     * Convert to JSON with this representation:
+     * * A drawing contains an array of polygons
+     * * A polygon has a color, and an array of points
+     * * A color is R,G,B,A values as doubles [0,1]
+     * * A point is X,Y coordinates as doubles [0,1]
+     */
+    Json::Value drwg;
+    Json::Value polygons(Json::arrayValue);
+    for (auto dnapoly: drawing->polygons())
+    {
+        Json::Value color;
+        color["r"] = dnapoly.brush().r / 255.0;
+        color["g"] = dnapoly.brush().g / 255.0;
+        color["b"] = dnapoly.brush().b / 255.0;
+        color["a"] = dnapoly.brush().a / 255.0;
+
+        Json::Value points(Json::arrayValue);
+        for (auto dnapoint: dnapoly.points())
+        {
+            Json::Value ptval;
+            ptval["x"] = dnapoint.x / 200.0;
+            ptval["y"] = dnapoint.y / 200.0;
+            points.append(ptval);
+        }
+
+        Json::Value polygon;
+        polygon["color"] = color;
+        polygon["points"] = points;
+
+        polygons.append(polygon);
+    }
+    drwg["polygons"] = polygons;
+
+    // write it out and close the file
+    Json::StreamWriterBuilder builder;
+    builder["indentation"] = "    ";
+    std::unique_ptr<Json::StreamWriter> writer( builder.newStreamWriter() );
+    writer->write(drwg, &outfile);
+    outfile.close();
+    std::cout << "Wrote drawing to JSON file "
+              << g_programArgs.jsonFilename << std::endl;
+
+    return;
+}
+
 int main(int argc, char *argv[])
 {
     int nextRenderedImage = 0;
@@ -490,6 +555,8 @@ int main(int argc, char *argv[])
               << difftime(g_endTime, g_startTime) << " seconds\n";
 
     generateLastDrawing();
+
+    saveDrawingJson(g_lastDrawing);
 
     delete g_lastDrawing;
     cairo_surface_destroy(g_environmentImage);

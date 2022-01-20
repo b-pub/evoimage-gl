@@ -26,7 +26,7 @@ if(EPICFAILMSG)
     message(FATAL_ERROR "Evoimage-gl needs the following libraries installed:\n${EPICFAILMSG}")
 endif()
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -O3")
 
 # Define the core GA engine library
 file(GLOB ENGINE_SRCS engine/*.cpp)
@@ -68,8 +68,13 @@ target_link_libraries(test_mutation
 add_executable(evoimagecairo
     src/evoimagecairo.cpp
 )
+
+target_link_directories(evoimagecairo
+    PUBLIC /opt/local/lib    # for jsoncpp
+)
 target_link_libraries(evoimagecairo
     engine
     ${CAIRO_LIBRARIES}
     ${PNG_LIBRARIES}
+    jsoncpp
 )
