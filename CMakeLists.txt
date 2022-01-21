@@ -75,6 +75,21 @@ target_link_directories(evoimagecairo
 target_link_libraries(evoimagecairo
     engine
     ${CAIRO_LIBRARIES}
-    ${PNG_LIBRARIES}
+    jsoncpp
+)
+
+#
+# evorender renders a JSON drawing to PNG at some resolution
+#
+add_executable(evorender
+    src/evorender.cpp
+)
+
+target_link_directories(evorender
+    PUBLIC /opt/local/lib    # for jsoncpp
+)
+target_link_libraries(evorender
+    engine
+    ${CAIRO_LIBRARIES}
     jsoncpp
 )
